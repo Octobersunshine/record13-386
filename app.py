@@ -259,11 +259,25 @@ def allowed_file(filename):
     return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
 
 
+def coerce_numeric(df):
+    converted = {}
+    numeric_cols = []
+    for col in df.columns:
+        series = pd.to_numeric(df[col], errors='coerce')
+        valid_count = series.notna().sum()
+        if valid_count > 0 and valid_count / len(series) > 0.5:
+            converted[col] = series
+            numeric_cols.append(col)
+        else:
+            converted[col] = df[col]
+    return pd.DataFrame(converted), numeric_cols
+
+
 def compute_statistics(df):
-    numeric_df = df.select_dtypes(include='number')
+    converted_df, numeric_cols = coerce_numeric(df)
     stats = {}
-    for col in numeric_df.columns:
-        series = numeric_df[col].dropna()
+    for col in numeric_cols:
+        series = converted_df[col].dropna()
         if len(series) == 0:
             continue
         stats[col] = {
@@ -277,7 +291,7 @@ def compute_statistics(df):
             '75%': float(series.quantile(0.75)),
             'max': float(series.max()),
         }
-    return stats, list(numeric_df.columns)
+    return stats, numeric_cols
 
 
 @app.route('/')

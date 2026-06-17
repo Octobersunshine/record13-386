@@ -38,7 +38,7 @@ python app.py
 ### API 调用
 
 ```bash
-curl -X POST -F "file=@sample_data.csv" http://localhost:5000/api/statistics
+curl -X POST -F "file=@sample_data.csv" http://localhost:5001/api/statistics
 ```
 
 **响应示例：**
