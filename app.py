@@ -224,18 +224,36 @@ HTML_TEMPLATE = """
         });
 
         function renderResult(data) {
-            const stats = ['count', 'mean', 'median', 'std', 'min', '25%', '50%', '75%', 'max'];
-            const labels = { count: '计数', mean: '均值', median: '中位数', std: '标准差', min: '最小值', '25%': 'Q1 (25%)', '50%': 'Q2 (50%)', '75%': 'Q3 (75%)', max: '最大值' };
+            const stats = ['count', 'mean', 'median', 'std', 'min', '25%', '50%', '75%', 'max', 'outliers_low', 'outliers_high', 'outliers_total'];
+            const labels = { count: '计数', mean: '均值', median: '中位数', std: '标准差', min: '最小值', '25%': 'Q1 (25%)', '50%': 'Q2 (50%)', '75%': 'Q3 (75%)', max: '最大值', outliers_low: '异常值(<-3σ)', outliers_high: '异常值(>+3σ)', outliers_total: '异常值(合计)' };
             const numericCols = data.numeric_columns;
-            let html = `<p style="margin-bottom:16px;color:#718096;">共识别 <strong>${numericCols.length}</strong> 个数值列，数据集共 <strong>${data.row_count}</strong> 行</p>`;
+            let totalOutliers = 0;
+            numericCols.forEach(col => {
+                totalOutliers += (data.statistics[col]?.outliers_total || 0);
+            });
+            let html = `<p style="margin-bottom:16px;color:#718096;">共识别 <strong>${numericCols.length}</strong> 个数值列，数据集共 <strong>${data.row_count}</strong> 行`;
+            if (totalOutliers > 0) {
+                html += `，检测到 <strong style="color:#c53030;">${totalOutliers}</strong> 个异常值（超出均值±3σ）`;
+            } else {
+                html += `，<strong style="color:#2f855a;">未检测到异常值</strong>`;
+            }
+            html += '</p>';
             html += '<div style="overflow-x:auto;"><table><thead><tr><th>统计量</th>';
             numericCols.forEach(col => html += `<th>${escapeHtml(col)}</th>`);
             html += '</tr></thead><tbody>';
             stats.forEach(s => {
-                html += `<tr><td>${labels[s] || s}</td>`;
+                const isOutlierRow = s.startsWith('outliers');
+                html += `<tr${isOutlierRow ? ' style="background:#fff5f5;"' : ''}><td${isOutlierRow ? ' style="color:#c53030;"' : ''}>${labels[s] || s}</td>`;
                 numericCols.forEach(col => {
                     const v = data.statistics[col]?.[s];
-                    html += `<td>${v !== undefined && v !== null ? Number(v).toLocaleString(undefined, {maximumFractionDigits: 4}) : '-'}</td>`;
+                    if (v === undefined || v === null) {
+                        html += '<td>-</td>';
+                    } else if (isOutlierRow) {
+                        const cls = v > 0 ? ' style="color:#c53030;font-weight:600;"' : '';
+                        html += `<td${cls}>${v > 0 ? v + ' ⚠️' : 0}</td>`;
+                    } else {
+                        html += `<td>${Number(v).toLocaleString(undefined, {maximumFractionDigits: 4})}</td>`;
+                    }
                 });
                 html += '</tr>';
             });
@@ -280,16 +298,29 @@ def compute_statistics(df):
         series = converted_df[col].dropna()
         if len(series) == 0:
             continue
+        mean = series.mean()
+        std = series.std()
+        if std > 0 and pd.notna(std):
+            lower = mean - 3 * std
+            upper = mean + 3 * std
+            outliers_low = int((series < lower).sum())
+            outliers_high = int((series > upper).sum())
+        else:
+            outliers_low = 0
+            outliers_high = 0
         stats[col] = {
             'count': int(series.count()),
-            'mean': float(series.mean()),
+            'mean': float(mean),
             'median': float(series.median()),
-            'std': float(series.std()),
+            'std': float(std),
             'min': float(series.min()),
             '25%': float(series.quantile(0.25)),
             '50%': float(series.quantile(0.50)),
             '75%': float(series.quantile(0.75)),
             'max': float(series.max()),
+            'outliers_low': outliers_low,
+            'outliers_high': outliers_high,
+            'outliers_total': outliers_low + outliers_high,
         }
     return stats, numeric_cols
 
